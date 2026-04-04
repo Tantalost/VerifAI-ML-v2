@@ -1,0 +1,71 @@
+# Virtual environments
+venv/
+.venv/
+
+# Dataset and processed data
+dataset/
+yolo_dataset/
+*/images/
+*/labels/
+
+# Model files and training outputs
+*.pt
+*.pth
+*.onnx
+*.torchscript
+runs/
+wandb/
+
+# Cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Jupyter notebooks
+*.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Large files and binaries
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+
+# Streamlit
+.streamlit/
+
+# Explanation outputs
+explanations/
+results/
+outputs/
+
+# Data files
+*.csv
+*.json
+*.pkl
+*.pickle
