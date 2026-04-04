@@ -108,11 +108,11 @@ result = explainer.explain_image('image.jpg', method='eigencam')
 ```
 
 ### Phase 4: Streamlit UI
-**File**: `app.py` (Coming Next)
+**File**: `src/app.py` ✅ **COMPLETED**
 
 **Purpose**: User-friendly interface for image classification and visualization.
 
-**Planned Features**:
+**Features**:
 - **Sidebar Upload**: Single images or batch uploads (zip/multiple files)
 - **Main Dashboard**: Image processing and results display
 - **Per-Image Display**:
@@ -121,6 +121,7 @@ result = explainer.explain_image('image.jpg', method='eigencam')
   - Predicted class
   - Confidence score bar chart
 - **Batch Analytics**: Aggregate graphs showing AI vs Real distribution
+- **Interactive Controls**: Method selection (EigenCAM/Grad-CAM), threshold adjustments
 
 ## 🚀 Getting Started
 
@@ -137,33 +138,18 @@ git clone <repository-url>
 cd VerifAI-ML
 ```
 
-2. **Install dependencies by phase**:
-
-**Phase 1 (Data Preparation)**:
-```bash
-pip install -r requirements_phase1.txt
-```
-
-**Phase 2 (Training)**:
-```bash
-pip install -r requirements_phase2.txt
-```
-
-**Phase 3 (Explainability)**:
-```bash
-pip install -r requirements_phase3.txt
-```
-
-**All Dependencies**:
+2. **Install dependencies**:
 ```bash
 pip install -r requirements.txt
 ```
+
+*Note: All phase-specific requirements have been consolidated into a single `requirements.txt` file for easier installation.*
 
 ### Usage
 
 #### Step 1: Data Preparation
 ```bash
-python data_preparation.py
+python src/data/data_preparation.py
 ```
 This will:
 - Read images from `dataset/real/` and `dataset/ai_generated/`
@@ -173,7 +159,7 @@ This will:
 
 #### Step 2: Model Training
 ```bash
-python training_pipeline.py
+python src/models/training_pipeline.py
 ```
 This will:
 - Load pre-trained YOLOv8 classification model
@@ -184,7 +170,7 @@ This will:
 
 #### Step 3: Test Explainability
 ```python
-from explainability_module import YOLOv8Explainer
+from src.models.explainability_module import YOLOv8Explainer
 
 # Initialize with your trained model
 explainer = YOLOv8Explainer('path/to/best.pt')
@@ -198,15 +184,31 @@ print(f"Confidence: {result['confidence']:.3f}")
 results = explainer.batch_explain(['img1.jpg', 'img2.jpg'], method='gradcam')
 ```
 
-#### Step 4: Launch UI (Coming Soon)
+#### Step 4: Launch UI ✅
 ```bash
-streamlit run app.py
+streamlit run src/app.py
 ```
 
 ## 📁 Project Structure
 
 ```
-VerifAI-ML/
+VerifAI-ML-v2/
+├── src/                              # Main source code
+│   ├── __init__.py
+│   ├── app.py                        # Phase 4: Streamlit UI ✅
+│   ├── run_app.py                    # App launcher script
+│   ├── data/                         # Data preparation modules
+│   │   ├── __init__.py
+│   │   ├── data_preparation.py       # Phase 1: Data preparation
+│   │   ├── download_ai_images.py      # AI image downloader
+│   │   └── download_real_images.py    # Real image downloader
+│   ├── models/                       # ML models and training
+│   │   ├── __init__.py
+│   │   ├── training_pipeline.py      # Phase 2: Training script
+│   │   ├── explainability_module.py  # Phase 3: Explainability
+│   │   └── yolo_engine.py           # YOLO utilities
+│   └── utils/                        # Helper utilities
+│       └── __init__.py
 ├── dataset/                          # Raw dataset
 │   ├── real/                         # Real images
 │   └── ai_generated/                 # AI-generated images
@@ -214,15 +216,13 @@ VerifAI-ML/
 │   ├── train/
 │   ├── val/
 │   └── test/
-├── data_preparation.py               # Phase 1: Data preparation script
-├── training_pipeline.py              # Phase 2: Training script
-├── explainability_module.py           # Phase 3: Explainability module
-├── app.py                           # Phase 4: Streamlit UI (coming)
-├── requirements.txt                 # All dependencies
-├── requirements_phase1.txt          # Phase 1 dependencies
-├── requirements_phase2.txt          # Phase 2 dependencies
-├── requirements_phase3.txt          # Phase 3 dependencies
-├── README.md                        # This file
+├── notebooks/                        # Jupyter notebooks for analysis
+├── tests/                            # Unit tests
+├── requirements.txt                  # All dependencies (consolidated) ✅
+├── main.py                           # Main entry point
+├── setup.py                          # Package setup
+├── README.md                         # This file
+├── deploy_instructions.md            # Deployment guide
 └── runs/                            # Training outputs (created by Phase 2)
 ```
 
@@ -327,6 +327,12 @@ For questions, suggestions, or collaborations, please reach out through the proj
 
 ---
 
-**Current Status**: Phase 3 Complete ✅ | Phase 4 (UI) In Progress 🚧
+**Current Status**: All 4 Phases Complete ✅ | Project Fully Functional 🎉
 
-**Next Steps**: Complete Streamlit UI development and integration testing.
+**Recent Updates**:
+- ✅ Consolidated all requirements into single `requirements.txt`
+- ✅ Reorganized project into proper modular structure
+- ✅ Completed Streamlit UI with full functionality
+- ✅ Added proper Python package structure with `__init__.py` files
+
+**Next Steps**: Integration testing, performance optimization, and deployment preparation.

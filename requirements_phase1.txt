@@ -1,4 +1,0 @@
-# Phase 1: Data Preparation Requirements
-Pillow>=9.0.0
-numpy>=1.21.0
-pathlib
