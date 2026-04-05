@@ -2,7 +2,7 @@ import os
 from datasets import load_dataset
 from tqdm import tqdm
 
-def download_sdxl_subset(dataset_dir="dataset/ai_generated", num_images=5000):
+def download_sdxl_subset(dataset_dir="dataset/ai_generated", num_images=1000):
     """
     Downloads a subset of high-resolution AI-generated images (Stable Diffusion XL).
     """

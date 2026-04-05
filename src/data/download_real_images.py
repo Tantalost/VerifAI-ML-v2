@@ -3,7 +3,7 @@ import requests
 import zipfile
 from tqdm import tqdm
 
-def download_coco_subset(dataset_dir="dataset/real"):
+def download_coco_subset(dataset_dir="dataset/real", num_images=1000):
     """
     Downloads and extracts the COCO 2017 Validation dataset (5,000 real images).
     """
