@@ -15,9 +15,91 @@ from PIL import Image
 import torch
 import warnings
 warnings.filterwarnings('ignore')
+import json
+from datetime import datetime
 
 # Import our custom modules
 from models.explainability_module import YOLOv8Explainer
+
+class MetricsTracker:
+    """Track FRR and FAR metrics for model evaluation"""
+    
+    def __init__(self):
+        self.metrics_file = "metrics_log.json"
+        self.load_metrics()
+    
+    def load_metrics(self):
+        """Load existing metrics from file"""
+        try:
+            with open(self.metrics_file, 'r') as f:
+                self.metrics = json.load(f)
+        except FileNotFoundError:
+            self.metrics = {
+                'true_positives': 0,  # AI correctly identified as AI
+                'true_negatives': 0,  # Real correctly identified as Real  
+                'false_positives': 0,  # Real incorrectly identified as AI
+                'false_negatives': 0,  # AI incorrectly identified as Real
+                'total_processed': 0,
+                'session_history': []
+            }
+    
+    def save_metrics(self):
+        """Save metrics to file"""
+        with open(self.metrics_file, 'w') as f:
+            json.dump(self.metrics, f, indent=2)
+    
+    def add_result(self, predicted_class, confidence, actual_class=None, filename="unknown"):
+        """Add a prediction result for tracking"""
+        self.metrics['total_processed'] += 1
+        
+        # If actual class is provided, calculate confusion matrix
+        if actual_class:
+            if actual_class.lower() == 'ai_generated' and predicted_class.lower() == 'ai_generated':
+                self.metrics['true_positives'] += 1
+            elif actual_class.lower() == 'real' and predicted_class.lower() == 'real':
+                self.metrics['true_negatives'] += 1
+            elif actual_class.lower() == 'real' and predicted_class.lower() == 'ai_generated':
+                self.metrics['false_positives'] += 1
+            elif actual_class.lower() == 'ai_generated' and predicted_class.lower() == 'real':
+                self.metrics['false_negatives'] += 1
+        
+        # Add to session history
+        self.metrics['session_history'].append({
+            'timestamp': datetime.now().isoformat(),
+            'filename': filename,
+            'predicted_class': predicted_class,
+            'confidence': confidence,
+            'actual_class': actual_class
+        })
+        
+        self.save_metrics()
+    
+    def calculate_rates(self):
+        """Calculate FRR and FAR"""
+        tp = self.metrics['true_positives']
+        tn = self.metrics['true_negatives']
+        fp = self.metrics['false_positives']
+        fn = self.metrics['false_negatives']
+        
+        # False Acceptance Rate: Real images incorrectly accepted as AI
+        far = fp / (fp + tn) if (fp + tn) > 0 else 0
+        
+        # False Rejection Rate: AI images incorrectly rejected as Real
+        frr = fn / (fn + tp) if (fn + tp) > 0 else 0
+        
+        # Accuracy
+        accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+        
+        return {
+            'far': far,
+            'frr': frr, 
+            'accuracy': accuracy,
+            'total_samples': tp + tn + fp + fn,
+            'true_positives': tp,
+            'true_negatives': tn,
+            'false_positives': fp,
+            'false_negatives': fn
+        }
 
 # Page configuration
 st.set_page_config(
@@ -26,6 +108,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Navigation
+page = st.sidebar.selectbox("🧭 Navigate", ["🔍 Image Analysis", "📊 Metrics Dashboard"])
+
+if page == "📊 Metrics Dashboard":
+    # Import and run dashboard
+    from dashboard import MetricsDashboard
+    dashboard = MetricsDashboard()
+    dashboard.run_dashboard()
+    st.stop()
 
 # Custom CSS for better styling
 st.markdown("""
@@ -70,6 +162,7 @@ class VerifAIApp:
         self.model_path = None
         self.explainer = None
         self.results_history = []
+        self.metrics_tracker = MetricsTracker()  # Add metrics tracking
         
     def load_model(self):
         """Load the trained YOLOv8 model"""
@@ -106,7 +199,7 @@ class VerifAIApp:
             st.error(f"❌ Error loading model: {str(e)}")
             return False
     
-    def process_single_image(self, image_file, method='eigencam'):
+    def process_single_image(self, image_file, method='eigencam', actual_class=None):
         """Process a single image and generate explanation"""
         try:
             # Save uploaded file temporarily
@@ -116,6 +209,15 @@ class VerifAIApp:
             
             # Generate explanation
             result = self.explainer.explain_image(tmp_path, method)
+            
+            # Track metrics
+            if result:
+                self.metrics_tracker.add_result(
+                    predicted_class=result['predicted_class'],
+                    confidence=result['confidence'],
+                    actual_class=actual_class,
+                    filename=getattr(image_file, 'name', 'uploaded_file')
+                )
             
             # Clean up
             os.unlink(tmp_path)
@@ -157,11 +259,11 @@ class VerifAIApp:
         
         with col1:
             st.subheader("📸 Original Image")
-            st.image(result['original_image'], caption=image_name, use_column_width=True)
+            st.image(result['original_image'], caption=image_name, use_container_width=True)
         
         with col2:
             st.subheader("🔍 Evidence Heatmap")
-            st.image(result['overlay'], caption="AI Detection Evidence", use_column_width=True)
+            st.image(result['overlay'], caption="AI Detection Evidence", use_container_width=True)
         
         # Prediction results
         st.subheader("🎯 Classification Results")
@@ -376,6 +478,41 @@ class VerifAIApp:
             mime="text/csv"
         )
     
+    def display_metrics_dashboard(self):
+        """Display FRR/FAR metrics in sidebar"""
+        rates = self.metrics_tracker.calculate_rates()
+        
+        # Display key metrics
+        st.metric("📊 Accuracy", f"{rates['accuracy']:.2%}")
+        st.metric("🚫 FAR", f"{rates['far']:.2%}")
+        st.metric("❌ FRR", f"{rates['frr']:.2%}")
+        
+        # Confusion matrix details
+        with st.expander("📋 Confusion Matrix"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("✅ True Positives", rates['true_positives'])
+                st.metric("✅ True Negatives", rates['true_negatives'])
+            with col2:
+                st.metric("🚫 False Positives", rates['false_positives'])
+                st.metric("❌ False Negatives", rates['false_negatives'])
+        
+        # Total samples
+        st.info(f"📈 Total Validated Samples: {rates['total_samples']}")
+        
+        # Clear metrics button
+        if st.button("🗑️ Clear Metrics", key="clear_metrics"):
+            self.metrics_tracker.metrics = {
+                'true_positives': 0,
+                'true_negatives': 0,
+                'false_positives': 0,
+                'false_negatives': 0,
+                'total_processed': 0,
+                'session_history': []
+            }
+            self.metrics_tracker.save_metrics()
+            st.rerun()
+    
     def run(self):
         """Main application runner"""
         # Header
@@ -415,7 +552,15 @@ class VerifAIApp:
             
             if uploaded_file is not None:
                 # Display uploaded image
-                st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+                st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+                
+                # Ground truth input for testing
+                st.subheader("🧪 Test Mode (Optional)")
+                actual_class = st.selectbox(
+                    "Actual Class (for accuracy testing):",
+                    ["Unknown", "Real", "AI-Generated"],
+                    help="Select the ground truth to calculate FRR/FAR metrics"
+                )
                 
                 # Process button
                 if st.button("🔍 Analyze Image", type="primary"):
@@ -423,8 +568,49 @@ class VerifAIApp:
                         result = self.process_single_image(uploaded_file, method)
                         
                         if result:
+                            # Store result in session state for verification
+                            st.session_state.current_result = result
+                            st.session_state.current_filename = uploaded_file.name
                             self.display_single_result(result, uploaded_file.name)
                             self.results_history.append(result)
+                            
+                            # Verification step
+                            st.subheader("✅ Verification - Is this prediction correct?")
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                if st.button("✅ Yes, Correct", type="primary", key="verify_correct"):
+                                    # Save with ground truth
+                                    actual_class = result['predicted_class'].lower().replace("-", "_")
+                                    self.metrics_tracker.add_result(
+                                        predicted_class=result['predicted_class'],
+                                        confidence=result['confidence'],
+                                        actual_class=actual_class,
+                                        filename=uploaded_file.name
+                                    )
+                                    st.success("✅ Prediction validated and saved to dashboard!")
+                                    st.session_state.current_result = None
+                                    st.rerun()
+                            
+                            with col2:
+                                if st.button("❌ No, Incorrect", type="secondary", key="verify_incorrect"):
+                                    # Save with corrected ground truth
+                                    actual_class = "ai_generated" if result['predicted_class'].lower() == "real" else "real"
+                                    self.metrics_tracker.add_result(
+                                        predicted_class=result['predicted_class'],
+                                        confidence=result['confidence'],
+                                        actual_class=actual_class,
+                                        filename=uploaded_file.name
+                                    )
+                                    st.success("✅ Correction saved to dashboard!")
+                                    st.session_state.current_result = None
+                                    st.rerun()
+                            
+                            with col3:
+                                if st.button("⏭️ Skip", type="secondary", key="verify_skip"):
+                                    st.info("⏭️ Prediction not saved to metrics")
+                                    st.session_state.current_result = None
+                                    st.rerun()
         
         else:  # Batch Upload
             st.header("📦 Batch Image Analysis")

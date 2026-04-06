@@ -106,26 +106,35 @@ class YOLOv8Explainer:
         """
         # Select the most informative feature maps (usually the deepest ones)
         # We'll use the last few layers for better semantic information
-        selected_layers = []
+        selected_features = []
         
         # Sort layer names to get the deeper layers (higher numbers)
         sorted_layers = sorted(feature_maps.items(), key=lambda x: x[0])
         
         # Select the last 10 layers or all if less than 10
         for name, features in sorted_layers[-10:]:
-            # Flatten spatial dimensions
-            features_flat = features.view(features.size(0), -1, features.size(1))
-            selected_layers.append(features_flat)
+            # Apply adaptive average pooling to standardize spatial dimensions
+            spatial_size = features.shape[2:]  # height, width
+            if spatial_size != (7, 7):  # Standardize to 7x7
+                pooled_features = torch.nn.functional.adaptive_avg_pool2d(features, (7, 7))
+            else:
+                pooled_features = features
+            
+            # Global average pooling across channels to get single value per spatial location
+            # [batch, channels, height, width] -> [batch, height, width]
+            gap_features = torch.mean(pooled_features, dim=1)
+            selected_features.append(gap_features)
         
-        if not selected_layers:
+        if not selected_features:
             raise ValueError("No feature maps found for EigenCAM computation")
         
-        # Concatenate all selected feature maps
-        all_features = torch.cat(selected_layers, dim=1)  # [batch, all_features, channels]
+        # Stack the features along the channel dimension
+        # Each tensor is [batch, height, width], stack to [batch, num_layers, height, width]
+        stacked_features = torch.stack(selected_features, dim=1)
         
-        # Compute principal components
-        # Reshape for PCA: [batch, spatial_points, channels] -> [spatial_points, channels]
-        features_2d = all_features.squeeze(0).cpu().numpy()  # [spatial_points, channels]
+        # Reshape for PCA: [batch, num_layers, height, width] -> [batch, height*width, num_layers]
+        batch_size, num_layers, height, width = stacked_features.shape
+        features_2d = stacked_features.view(batch_size, height * width, num_layers).squeeze(0).cpu().numpy()
         
         # Center the data
         features_centered = features_2d - np.mean(features_2d, axis=0, keepdims=True)

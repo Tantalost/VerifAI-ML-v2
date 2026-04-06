@@ -327,7 +327,7 @@ For questions, suggestions, or collaborations, please reach out through the proj
 
 ---
 
-**Current Status**: All 4 Phases Complete ✅ | Project Fully Functional 🎉
+**Current Status**: All 4 Phases Complete ✅ | Enhanced with FRR/FAR Dashboard 🎉
 
 **Recent Updates**:
 - ✅ Consolidated all requirements into single `requirements.txt`
@@ -337,13 +337,53 @@ For questions, suggestions, or collaborations, please reach out through the proj
 - ✅ Fixed YOLOv8 model output handling (tuple vs tensor issue)
 - ✅ Fixed import path in Streamlit app (`explainability_module` → `models.explainability_module`)
 - ✅ Fixed EigenCAM feature map extraction for YOLOv8 nested layer structure
+- ✅ Fixed tensor size mismatch in EigenCAM computation
+- ✅ Fixed deprecated `use_column_width` parameter (replaced with `use_container_width`)
+- ✅ Added comprehensive FRR/FAR metrics tracking system
+- ✅ Created separate Metrics Dashboard page
+- ✅ Implemented verification workflow with ground truth validation
+- ✅ Added two-page navigation system
+
+**New Features Added**:
+1. **📊 Dedicated Metrics Dashboard** (`src/dashboard.py`):
+   - Performance Overview (Accuracy, FAR, FRR, Total Validated)
+   - Interactive Confusion Matrix with heatmap visualization
+   - Performance Trends over time
+   - Recent Validated Predictions table
+   - Export options (JSON, CSV)
+   - Reset functionality
+
+2. **🔄 Verification Workflow**:
+   - Post-analysis verification step
+   - Three options: "✅ Yes, Correct", "❌ No, Incorrect", "⏭️ Skip"
+   - Automatic FRR/FAR calculation based on user validation
+   - Persistent metrics storage in `metrics_log.json`
+
+3. **🧭 Two-Page Navigation**:
+   - **🔍 Image Analysis**: Main analysis page with verification
+   - **📊 Metrics Dashboard**: Dedicated analytics page
+
+4. **📈 Advanced Metrics Tracking**:
+   - False Acceptance Rate (FAR): Real images incorrectly classified as AI
+   - False Rejection Rate (FRR): AI images incorrectly classified as Real
+   - Confusion Matrix tracking (TP, TN, FP, FN)
+   - Session history with timestamps
+   - Persistent storage across app restarts
 
 **Bug Fixes Applied**:
 1. **Model Output Handling**: Added tuple detection and extraction for YOLOv8 classification outputs
 2. **Import Path Correction**: Fixed module import in `src/app.py` to use proper relative path
 3. **Feature Map Extraction**: Updated EigenCAM to work with YOLOv8's nested Conv2D layer structure using `named_modules()`
 4. **Layer Selection**: Changed EigenCAM to use deepest 10 layers instead of hardcoded naming patterns
+5. **Tensor Size Mismatch**: Fixed feature map concatenation using global average pooling and stacking
+6. **Streamlit Deprecation**: Replaced deprecated `use_column_width` with `use_container_width`
 
-**Known Issues**: Some errors may still occur during image processing - continue debugging as needed.
+**How to Use the New Features**:
+1. **Image Analysis**: Upload image → Analyze → Verify prediction → Saves to dashboard
+2. **Metrics Dashboard**: Navigate to "📊 Metrics Dashboard" to view FRR/FAR analytics
+3. **Testing**: Use verification workflow to build accurate metrics dataset
+4. **Export**: Download metrics data for further analysis
 
-**Next Steps**: Complete error resolution, performance optimization, and deployment preparation.
+**Known Issues**: None currently - all major bugs resolved.
+
+**Next Steps**: Collect validation data through verification workflow, analyze model performance patterns, optimize based on FRR/FAR insights.
