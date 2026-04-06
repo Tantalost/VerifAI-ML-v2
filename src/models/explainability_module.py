@@ -78,16 +78,10 @@ class YOLOv8Explainer:
         # Register hooks for different layers
         hooks = []
         
-        # Get backbone layers (typically the first few layers)
-        for i, layer in enumerate(self.pytorch_model.model[:23]):  # YOLOv8 backbone layers
-            if isinstance(layer, torch.nn.Conv2d):
-                hook = layer.register_forward_hook(hook_fn(f'backbone_conv_{i}'))
-                hooks.append(hook)
-        
-        # Get neck layers (feature pyramid)
-        for i, layer in enumerate(self.pytorch_model.model[23:-1]):  # Neck layers
-            if isinstance(layer, torch.nn.Conv2d):
-                hook = layer.register_forward_hook(hook_fn(f'neck_conv_{i}'))
+        # Use named_modules to find all Conv2d layers in the model
+        for name, module in self.pytorch_model.named_modules():
+            if isinstance(module, torch.nn.Conv2d):
+                hook = module.register_forward_hook(hook_fn(name))
                 hooks.append(hook)
         
         # Forward pass
@@ -111,14 +105,17 @@ class YOLOv8Explainer:
             EigenCAM heatmap
         """
         # Select the most informative feature maps (usually the deepest ones)
-        # We'll use the last few backbone and neck layers
+        # We'll use the last few layers for better semantic information
         selected_layers = []
         
-        for name, features in feature_maps.items():
-            if 'backbone_conv' in name or 'neck_conv' in name:
-                # Flatten spatial dimensions
-                features_flat = features.view(features.size(0), -1, features.size(1))
-                selected_layers.append(features_flat)
+        # Sort layer names to get the deeper layers (higher numbers)
+        sorted_layers = sorted(feature_maps.items(), key=lambda x: x[0])
+        
+        # Select the last 10 layers or all if less than 10
+        for name, features in sorted_layers[-10:]:
+            # Flatten spatial dimensions
+            features_flat = features.view(features.size(0), -1, features.size(1))
+            selected_layers.append(features_flat)
         
         if not selected_layers:
             raise ValueError("No feature maps found for EigenCAM computation")
@@ -289,6 +286,11 @@ class YOLOv8Explainer:
         # Get prediction
         with torch.no_grad():
             outputs = self.pytorch_model(image_tensor)
+            
+            # Handle YOLOv8 output format (may return tuple)
+            if isinstance(outputs, tuple):
+                outputs = outputs[0] if len(outputs) > 0 else outputs
+            
             probabilities = F.softmax(outputs, dim=1)
             confidence, predicted_class = torch.max(probabilities, 1)
             

@@ -17,7 +17,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import our custom modules
-from explainability_module import YOLOv8Explainer
+from models.explainability_module import YOLOv8Explainer
 
 # Page configuration
 st.set_page_config(

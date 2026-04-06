@@ -334,5 +334,16 @@ For questions, suggestions, or collaborations, please reach out through the proj
 - ✅ Reorganized project into proper modular structure
 - ✅ Completed Streamlit UI with full functionality
 - ✅ Added proper Python package structure with `__init__.py` files
+- ✅ Fixed YOLOv8 model output handling (tuple vs tensor issue)
+- ✅ Fixed import path in Streamlit app (`explainability_module` → `models.explainability_module`)
+- ✅ Fixed EigenCAM feature map extraction for YOLOv8 nested layer structure
 
-**Next Steps**: Integration testing, performance optimization, and deployment preparation.
+**Bug Fixes Applied**:
+1. **Model Output Handling**: Added tuple detection and extraction for YOLOv8 classification outputs
+2. **Import Path Correction**: Fixed module import in `src/app.py` to use proper relative path
+3. **Feature Map Extraction**: Updated EigenCAM to work with YOLOv8's nested Conv2D layer structure using `named_modules()`
+4. **Layer Selection**: Changed EigenCAM to use deepest 10 layers instead of hardcoded naming patterns
+
+**Known Issues**: Some errors may still occur during image processing - continue debugging as needed.
+
+**Next Steps**: Complete error resolution, performance optimization, and deployment preparation.
