@@ -2,15 +2,15 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import cv2
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import matplotlib.cm as cm
-from pathlib import Path
 import logging
+from sklearn.decomposition import PCA
 from ultralytics import YOLO
-from typing import Tuple, Optional, Dict, Any
-import warnings
-warnings.filterwarnings('ignore')
+import os
+from typing import Dict, Any, List, Tuple, Optional
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -169,7 +169,7 @@ class YOLOv8Explainer:
         # Normalize to [0, 1]
         cam_normalized = (cam_resized - cam_resized.min()) / (cam_resized.max() - cam_resized.min() + 1e-8)
         
-        return torch.from_numpy(cam_normalized).to(self.device)
+        return torch.from_numpy(cam_normalized).float().to(self.device)
     
     def compute_gradcam(self, x: torch.Tensor, target_class: int) -> torch.Tensor:
         """
@@ -209,8 +209,15 @@ class YOLOv8Explainer:
         backward_handle = target_layer.register_backward_hook(backward_hook)
         
         try:
+            # Enable gradients for Grad-CAM computation
+            x.requires_grad_(True)
+            
             # Forward pass
             output = self.pytorch_model(x)
+            
+            # Handle YOLOv8 output format (may return tuple)
+            if isinstance(output, tuple):
+                output = output[0] if len(output) > 0 else output
             
             # Zero gradients
             self.pytorch_model.zero_grad()
@@ -274,6 +281,157 @@ class YOLOv8Explainer:
         
         return overlay
     
+    def detect_ai_regions(self, heatmap: torch.Tensor, original_image: np.ndarray, 
+                         confidence_threshold: float = 0.3) -> List[Dict[str, Any]]:
+        """
+        Detect AI-generated regions using heatmap analysis with YOLOv8-style bounding boxes.
+        
+        Args:
+            heatmap: The explainability heatmap
+            original_image: Original image as numpy array
+            confidence_threshold: Threshold for region detection
+            
+        Returns:
+            List of detected regions with bounding boxes and labels
+        """
+        try:
+            # Convert heatmap to numpy
+            if isinstance(heatmap, torch.Tensor):
+                heatmap_np = heatmap.cpu().numpy()
+            else:
+                heatmap_np = heatmap
+            
+            # Ensure heatmap is in [0, 1] range
+            heatmap_np = (heatmap_np - heatmap_np.min()) / (heatmap_np.max() - heatmap_np.min() + 1e-8)
+            
+            # Resize heatmap to match original image
+            original_h, original_w = original_image.shape[:2]
+            heatmap_resized = cv2.resize(heatmap_np, (original_w, original_h))
+            
+            # Apply threshold to create binary mask
+            binary_mask = (heatmap_resized > confidence_threshold).astype(np.uint8)
+            
+            # Find contours (potential regions)
+            contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            detected_regions = []
+            
+            for i, contour in enumerate(contours):
+                # Calculate contour area and filter small regions
+                area = cv2.contourArea(contour)
+                if area < (original_w * original_h * 0.01):  # Filter regions smaller than 1% of image
+                    continue
+                
+                # Get bounding box
+                x, y, w, h = cv2.boundingRect(contour)
+                
+                # Calculate region confidence based on heatmap intensity
+                region_heatmap = heatmap_resized[y:y+h, x:x+w]
+                region_confidence = np.mean(region_heatmap)
+                
+                # Determine label based on region characteristics
+                label = self._classify_region_type(region_heatmap, region_confidence)
+                
+                detected_regions.append({
+                    'bbox': [x, y, w, h],
+                    'confidence': float(region_confidence),
+                    'label': label,
+                    'area': float(area),
+                    'region_id': i
+                })
+            
+            # Sort regions by confidence
+            detected_regions.sort(key=lambda x: x['confidence'], reverse=True)
+            
+            logger.info(f"Detected {len(detected_regions)} AI-generated regions")
+            return detected_regions
+            
+        except Exception as e:
+            logger.error(f"Error in region detection: {str(e)}")
+            return []
+    
+    def _classify_region_type(self, region_heatmap: np.ndarray, confidence: float) -> str:
+        """
+        Classify the type of AI-generated region based on heatmap patterns.
+        
+        Args:
+            region_heatmap: Heatmap values for the region
+            confidence: Average confidence score
+            
+        Returns:
+            String label for the region type
+        """
+        # Calculate region characteristics
+        std_dev = np.std(region_heatmap)
+        mean_val = np.mean(region_heatmap)
+        
+        # Classify based on patterns
+        if confidence > 0.7:
+            if std_dev > 0.2:
+                return "AI Pattern"
+            else:
+                return "Anomaly"
+        elif confidence > 0.5:
+            if std_dev > 0.15:
+                return "Artifact"
+            else:
+                return "Suspicious"
+        else:
+            return "Uncertain"
+    
+    def draw_bounding_boxes(self, original_image: np.ndarray, 
+                           detected_regions: List[Dict[str, Any]]) -> np.ndarray:
+        """
+        Draw YOLOv8-style bounding boxes on the original image.
+        
+        Args:
+            original_image: Original image as numpy array
+            detected_regions: List of detected regions
+            
+        Returns:
+            Image with bounding boxes drawn
+        """
+        try:
+            # Create a copy of the original image
+            image_with_boxes = original_image.copy()
+            
+            # Define colors for different labels
+            colors = {
+                "AI Pattern": (255, 0, 0),      # Red
+                "Anomaly": (0, 255, 0),         # Green
+                "Artifact": (0, 0, 255),        # Blue
+                "Suspicious": (255, 255, 0),    # Yellow
+                "Uncertain": (128, 128, 128)    # Gray
+            }
+            
+            for region in detected_regions:
+                bbox = region['bbox']
+                x, y, w, h = bbox
+                confidence = region['confidence']
+                label = region['label']
+                color = colors.get(label, (255, 0, 0))
+                
+                # Draw bounding box
+                cv2.rectangle(image_with_boxes, (x, y), (x + w, y + h), color, 2)
+                
+                # Create label background
+                label_text = f"{label}: {confidence:.2f}"
+                (label_width, label_height), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                
+                # Draw label background
+                cv2.rectangle(image_with_boxes, (x, y - label_height - 10), 
+                            (x + label_width, y), color, -1)
+                
+                # Draw label text
+                cv2.putText(image_with_boxes, label_text, (x, y - 5), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            
+            return image_with_boxes
+            
+        except Exception as e:
+            logger.error(f"Error drawing bounding boxes: {str(e)}")
+            return original_image
+    
     def explain_image(self, image_path: str, method: str = 'eigencam', 
                       save_path: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -321,8 +479,12 @@ class YOLOv8Explainer:
         # Generate overlay
         overlay = self.generate_heatmap_overlay(original_image, heatmap)
         
+        # Detect AI regions and draw bounding boxes
+        detected_regions = self.detect_ai_regions(heatmap, original_image)
+        image_with_boxes = self.draw_bounding_boxes(original_image, detected_regions)
+        
         # Create visualization
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 4, figsize=(20, 5))
         
         # Original image
         axes[0].imshow(original_image)
@@ -338,6 +500,11 @@ class YOLOv8Explainer:
         axes[2].imshow(overlay)
         axes[2].set_title(f'Prediction: {predicted_label}\nConfidence: {confidence_score:.3f}')
         axes[2].axis('off')
+        
+        # Bounding boxes
+        axes[3].imshow(image_with_boxes)
+        axes[3].set_title(f'Detected Regions: {len(detected_regions)}')
+        axes[3].axis('off')
         
         plt.tight_layout()
         
@@ -355,7 +522,9 @@ class YOLOv8Explainer:
             },
             'heatmap': heatmap.cpu().numpy(),
             'overlay': overlay,
+            'image_with_boxes': image_with_boxes,
             'original_image': original_image,
+            'detected_regions': detected_regions,
             'visualization': fig
         }
         

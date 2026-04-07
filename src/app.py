@@ -20,6 +20,8 @@ from datetime import datetime
 
 # Import our custom modules
 from models.explainability_module import YOLOv8Explainer
+from utils.metrics_tracker import MetricsTracker
+from utils.history_manager import HistoryManager
 
 class MetricsTracker:
     """Track FRR and FAR metrics for model evaluation"""
@@ -131,19 +133,22 @@ st.markdown("""
     }
     .metric-card {
         background-color: #f0f2f6;
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .result-card {
         background-color: #ffffff;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border: 1px solid #e1e5e9;
-        margin-bottom: 1rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .confidence-high {
-        color: #2ecc71;
+        color: #27ae60;
         font-weight: bold;
     }
     .confidence-medium {
@@ -154,6 +159,20 @@ st.markdown("""
         color: #e74c3c;
         font-weight: bold;
     }
+    .method-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #e9ecef;
+        margin: 0.5rem 0;
+    }
+    .heatmap-container {
+        border: 2px solid #e9ecef;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+        background-color: #ffffff;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -163,6 +182,7 @@ class VerifAIApp:
         self.explainer = None
         self.results_history = []
         self.metrics_tracker = MetricsTracker()  # Add metrics tracking
+        self.history_manager = HistoryManager()  # Add history management
         
     def load_model(self):
         """Load the trained YOLOv8 model"""
@@ -199,30 +219,47 @@ class VerifAIApp:
             st.error(f"❌ Error loading model: {str(e)}")
             return False
     
-    def process_single_image(self, image_file, method='eigencam', actual_class=None):
-        """Process a single image and generate explanation"""
+    def process_single_image(self, image_file, actual_class=None):
+        """Process a single image and generate explanations for both methods"""
         try:
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
                 tmp_file.write(image_file.getvalue())
                 tmp_path = tmp_file.name
             
-            # Generate explanation
-            result = self.explainer.explain_image(tmp_path, method)
+            # Generate explanations for both methods
+            eigencam_result = self.explainer.explain_image(tmp_path, 'eigencam')
+            gradcam_result = self.explainer.explain_image(tmp_path, 'gradcam')
+            
+            # Combine results
+            combined_result = {
+                'predicted_class': eigencam_result['predicted_class'],
+                'confidence': eigencam_result['confidence'],
+                'eigencam': eigencam_result,
+                'gradcam': gradcam_result
+            }
             
             # Track metrics
-            if result:
+            if combined_result:
                 self.metrics_tracker.add_result(
-                    predicted_class=result['predicted_class'],
-                    confidence=result['confidence'],
+                    predicted_class=combined_result['predicted_class'],
+                    confidence=combined_result['confidence'],
                     actual_class=actual_class,
                     filename=getattr(image_file, 'name', 'uploaded_file')
+                )
+                
+                # Save to history
+                self.history_manager.add_analysis(
+                    result=combined_result,
+                    filename=getattr(image_file, 'name', 'uploaded_file'),
+                    analysis_type="single",
+                    method="both"
                 )
             
             # Clean up
             os.unlink(tmp_path)
             
-            return result
+            return combined_result
             
         except Exception as e:
             st.error(f"❌ Error processing image: {str(e)}")
@@ -243,6 +280,14 @@ class VerifAIApp:
             if result:
                 result['filename'] = image_file.name
                 results.append(result)
+                
+                # Save to history
+                self.history_manager.add_analysis(
+                    result=result,
+                    filename=image_file.name,
+                    analysis_type="batch",
+                    method=method
+                )
         
         status_text.text("✅ Batch processing completed!")
         progress_bar.empty()
@@ -250,28 +295,63 @@ class VerifAIApp:
         return results
     
     def display_single_result(self, result, image_name="Uploaded Image"):
-        """Display results for a single image"""
+        """Display results for a single image with both EigenCAM and Grad-CAM"""
         if not result:
             return
         
-        # Create columns for layout
+        # Original Image
+        st.subheader("📸 Original Image")
+        st.image(result['eigencam']['original_image'], caption=image_name, use_container_width=True)
+        
+        # Bounding Box Analysis
+        st.subheader("🎯 AI Region Detection")
+        st.markdown("*YOLOv8-style bounding boxes highlight areas most likely to be AI-generated*")
+        
+        # Get detected regions from both methods
+        eigencam_regions = result['eigencam'].get('detected_regions', [])
+        gradcam_regions = result['gradcam'].get('detected_regions', [])
+        
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.subheader("📸 Original Image")
-            st.image(result['original_image'], caption=image_name, use_container_width=True)
+            st.markdown("### 🌊 EigenCAM Regions")
+            if eigencam_regions:
+                st.image(result['eigencam']['image_with_boxes'], caption="EigenCAM Detected Regions", use_container_width=True)
+                
+                # Region details
+                with st.expander("📋 Region Details"):
+                    for i, region in enumerate(eigencam_regions[:5]):  # Show top 5 regions
+                        bbox = region['bbox']
+                        st.write(f"**Region {i+1}:** {region['label']}")
+                        st.write(f"   - Confidence: {region['confidence']:.3f}")
+                        st.write(f"   - Area: {region['area']:.0f} pixels")
+                        st.write(f"   - Bounding Box: [{bbox[0]}, {bbox[1]}, {bbox[2]}, {bbox[3]}]")
+            else:
+                st.info("No AI regions detected by EigenCAM")
         
         with col2:
-            st.subheader("🔍 Evidence Heatmap")
-            st.image(result['overlay'], caption="AI Detection Evidence", use_container_width=True)
+            st.markdown("### 🎯 Grad-CAM Regions")
+            if gradcam_regions:
+                st.image(result['gradcam']['image_with_boxes'], caption="Grad-CAM Detected Regions", use_container_width=True)
+                
+                # Region details
+                with st.expander("📋 Region Details"):
+                    for i, region in enumerate(gradcam_regions[:5]):  # Show top 5 regions
+                        bbox = region['bbox']
+                        st.write(f"**Region {i+1}:** {region['label']}")
+                        st.write(f"   - Confidence: {region['confidence']:.3f}")
+                        st.write(f"   - Area: {region['area']:.0f} pixels")
+                        st.write(f"   - Bounding Box: [{bbox[0]}, {bbox[1]}, {bbox[2]}, {bbox[3]}]")
+            else:
+                st.info("No AI regions detected by Grad-CAM")
         
         # Prediction results
         st.subheader("🎯 Classification Results")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns([1.2, 1.2, 1])
         
         with col1:
-            # Prediction card
+            # Prediction card with better styling
             prediction_class = result['predicted_class']
             confidence = result['confidence']
             
@@ -286,77 +366,76 @@ class VerifAIApp:
                 confidence_class = "confidence-low"
                 confidence_text = "Low Confidence"
             
+            # Better prediction display
             st.markdown(f"""
             <div class="result-card">
-                <h3>Prediction</h3>
-                <h2 style="color: {'#e74c3c' if prediction_class == 'ai_generated' else '#2ecc71'};">
+                <h3 style="margin-bottom: 0.5rem;">Prediction</h3>
+                <h2 style="color: {'#e74c3c' if prediction_class == 'ai_generated' else '#2ecc71'}; margin: 0.5rem 0;">
                     {prediction_class.upper().replace('_', ' ')}
                 </h2>
-                <p class="{confidence_class}">
-                    {confidence:.3f} ({confidence_text})
-                </p>
+                <p class="{confidence_class}">{confidence:.3f} ({confidence_text})</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
-            # Confidence bar chart
-            st.markdown("**Confidence Scores**")
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=['Real', 'AI Generated'],
-                y=[
-                    result['class_probabilities']['real'],
-                    result['class_probabilities']['ai_generated']
-                ],
-                marker_color=['#2ecc71', '#e74c3c']
-            ))
-            
-            fig.update_layout(
-                title="Class Probabilities",
-                yaxis_title="Confidence",
-                yaxis=dict(range=[0, 1]),
-                showlegend=False,
-                height=300
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            # Class probabilities with better chart
+            st.markdown("**Class Probabilities**")
+            if 'class_probabilities' in result['eigencam']:
+                probs = result['eigencam']['class_probabilities']
+                fig = go.Figure(data=[
+                    go.Bar(name='Real', x=['Real'], y=[probs['real']], marker_color='#2ecc71'),
+                    go.Bar(name='AI Generated', x=['AI Generated'], y=[probs['ai_generated']], marker_color='#e74c3c')
+                ])
+                fig.update_layout(
+                    barmode='group', 
+                    yaxis_title="Probability", 
+                    height=250,
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig, use_container_width=True)
         
         with col3:
-            # Detailed metrics
+            # Detailed metrics with better styling
             st.markdown("**Detailed Analysis**")
+            if 'class_probabilities' in result['eigencam']:
+                probs = result['eigencam']['class_probabilities']
+                st.metric("Real Probability", f"{probs['real']:.3f}")
+                st.metric("AI Generated Probability", f"{probs['ai_generated']:.3f}")
+                margin = abs(probs['real'] - probs['ai_generated'])
+                st.metric("Prediction Margin", f"{margin:.3f}")
+        
+        # Both explanations side by side
+        st.subheader("🔍 Explainability Analysis")
+        st.markdown("*Compare both methods to understand different aspects of the AI's decision*")
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown('<div class="method-card">', unsafe_allow_html=True)
+            st.markdown("### 🌊 EigenCAM Analysis")
+            st.markdown("*Shows overall patterns and features that influenced the decision*")
+            st.image(result['eigencam']['overlay'], caption="EigenCAM Heatmap", use_container_width=True)
             
-            real_prob = result['class_probabilities']['real']
-            ai_prob = result['class_probabilities']['ai_generated']
+            # EigenCAM details
+            with st.expander("📋 EigenCAM Details"):
+                st.write("**Method**: Principal Component Analysis on feature maps")
+                st.write("**Focus**: Overall decision patterns")
+                st.write("**Strengths**: Good for showing broad evidence regions")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="method-card">', unsafe_allow_html=True)
+            st.markdown("### 🎯 Grad-CAM Analysis")
+            st.markdown("*Shows class-specific features that are most relevant to the prediction*")
+            st.image(result['gradcam']['overlay'], caption="Grad-CAM Heatmap", use_container_width=True)
             
-            st.metric("Real Probability", f"{real_prob:.3f}")
-            st.metric("AI Generated Probability", f"{ai_prob:.3f}")
-            st.metric("Prediction Margin", f"{abs(real_prob - ai_prob):.3f}")
-        
-        # Heatmap visualization
-        st.subheader("🌡️ Detailed Heatmap Analysis")
-        
-        # Create matplotlib figure for better control
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        
-        # Original image
-        axes[0].imshow(result['original_image'])
-        axes[0].set_title('Original Image')
-        axes[0].axis('off')
-        
-        # Raw heatmap
-        axes[1].imshow(result['heatmap'], cmap='jet')
-        axes[1].set_title('Raw Heatmap')
-        axes[1].axis('off')
-        
-        # Overlay
-        axes[2].imshow(result['overlay'])
-        axes[2].set_title(f'Prediction: {prediction_class}')
-        axes[2].axis('off')
-        
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
+            # Grad-CAM details
+            with st.expander("📋 Grad-CAM Details"):
+                st.write("**Method**: Gradient-based class activation mapping")
+                st.write("**Focus**: Class-specific features")
+                st.write("**Strengths**: Precise localization of decision-critical areas")
+            st.markdown('</div>', unsafe_allow_html=True)
     
     def display_batch_results(self, results):
         """Display results for batch processing"""
@@ -533,13 +612,6 @@ class VerifAIApp:
             ["Single Image", "Batch Upload"]
         )
         
-        # Explainability method
-        method = st.sidebar.selectbox(
-            "Explainability Method:",
-            ["eigencam", "gradcam"],
-            help="EigenCAM shows overall patterns, Grad-CAM shows class-specific features"
-        )
-        
         # Main content
         if upload_type == "Single Image":
             st.header("📤 Single Image Analysis")
@@ -564,8 +636,9 @@ class VerifAIApp:
                 
                 # Process button
                 if st.button("🔍 Analyze Image", type="primary"):
-                    with st.spinner("Analyzing image..."):
-                        result = self.process_single_image(uploaded_file, method)
+                    with st.spinner("Analyzing image with both EigenCAM and Grad-CAM..."):
+                        actual = None if actual_class == "Unknown" else actual_class.lower().replace("-", "_")
+                        result = self.process_single_image(uploaded_file, actual)
                         
                         if result:
                             # Store result in session state for verification
