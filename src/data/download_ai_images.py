@@ -11,7 +11,7 @@ def download_sdxl_subset(dataset_dir="dataset/ai_generated", num_images=5000):
     print(f"Connecting to Hugging Face to fetch {num_images} AI images...")
 
     try:
-        # Load a modern, script-free dataset natively supported by Hugging Face
+        # Load a modern, script-free dataset natively sgbupported by Hugging Face
         dataset = load_dataset("ash12321/sdxl-generated-10k", split=f"train[:{num_images}]")
         
         print(f"Successfully connected! Saving images to disk...")

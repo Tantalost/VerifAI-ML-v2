@@ -184,6 +184,12 @@ print(f"Confidence: {result['confidence']:.3f}")
 results = explainer.batch_explain(['img1.jpg', 'img2.jpg'], method='gradcam')
 ```
 
+#### Step 4: Evaluate Model Metrics
+```bash
+python test_model.py
+```
+This now prints overall accuracy plus a confusion matrix and binary false positive/false negative rates for the validation set.
+
 #### Step 4: Launch UI ✅
 ```bash
 streamlit run src/app.py
